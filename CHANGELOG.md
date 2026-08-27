@@ -5,6 +5,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.8.1] - 2026-08-27
+
+### Changed
+
+- **Eigenes App-Icon.** Bis hierher trug jedes Werkzeug des Portfolios dasselbe RayStudio-Logo, byteweise identisch, was im Dock und in der Titelleiste nicht auseinanderzuhalten war. MailLoom bekommt jetzt sein eigenes Zeichen im bestehenden Hausstil: runder Rahmen mit Goldkante, tiefdunkler Grund, die Initialen in einer Didone-Serife, der goldene Strahl mit Funkeln darueber.
+
+  Zwei Fassungen, wie es Apple und Microsoft ebenfalls halten: ab 128 Punkten die feine mit dem Schriftzug, darunter eine ohne. Gesperrte Versalien werden bei 32 Punkten zu einem grauen Streifen und nehmen den Initialen nur den Platz weg, den sie dort brauchen.
+
+  Die Farbwerte stammen aus `RegistrarCheck.png`, nicht aus einer Schaetzung: Grund `#010d22`, Gold von `#a7782f` ueber `#e2c47e` nach `#ca9f4d`. Die SVG-Quellen liegen unter `src-tauri/icons/source/`, damit sich das Zeichen spaeter aendern laesst, ohne es nachbauen zu muessen.
+
+---
+
 ## [1.8.0] - 2026-08-05
 
 ### Changed
