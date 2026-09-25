@@ -16,6 +16,7 @@ tracing.workspace     = true
 async-trait.workspace = true
 
 imap       = "3.0.0-alpha.15"
+imap-proto = "0.16"
 mailparse  = "0.16"
 regex      = "1"
 rayon      = "1"

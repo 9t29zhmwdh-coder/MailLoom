@@ -1,12 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { useAccountStore } from '../../stores/accountStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { api, categoryLabel, categoryEmoji, categoryColor, type EmailCategory } from '../../lib/tauri'
 import { useT, getLang } from '../../lib/i18n'
 
 interface Props { onNavigate: (tab: 'emails' | 'actions' | 'settings') => void }
-
-const AUTO_SYNC_INTERVAL_MS = 60_000
 
 function relativeTime(raw: number | string | undefined): string {
   if (!raw) return ''
@@ -35,9 +34,15 @@ export function Dashboard({ onNavigate }: Props) {
   const [classifying, setClassifying] = useState(false)
   const [classifyProgress, setClassifyProgress] = useState<{ done: number; total: number } | null>(null)
   const [syncResults, setSyncResults] = useState<Record<string, { count: number; error?: string }>>({})
-  const [autoSync, setAutoSync] = useState(() => localStorage.getItem('autoSync') === 'true')
+  // The switch writes the setting; the timer itself runs in App, on every page.
+  const { settings, setSettings } = useSettingsStore()
+  const autoSync = settings.auto_sync
+  const setAutoSync = (update: (v: boolean) => boolean) => {
+    const next = { ...settings, auto_sync: update(settings.auto_sync) }
+    setSettings(next)
+    api.saveSettings(next).catch(() => {})
+  }
   const [, setTick] = useState(0)
-  const autoSyncTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Relative-Zeit jede Minute neu berechnen
   useEffect(() => {
@@ -60,6 +65,7 @@ export function Dashboard({ onNavigate }: Props) {
     }
     await loadAccounts()
     await loadStats()
+    if (settings.auto_classify) handleClassify()
   }
 
   const handleSync = async (accountId: string) => {
@@ -75,18 +81,10 @@ export function Dashboard({ onNavigate }: Props) {
       await loadAccounts()
       await loadStats()
     }
+    // "Classify automatically after sync" was a setting nothing read.
+    if (settings.auto_classify) handleClassify()
   }
 
-  // Auto-Sync ein/ausschalten
-  useEffect(() => {
-    localStorage.setItem('autoSync', String(autoSync))
-    if (autoSync) {
-      autoSyncTimer.current = setInterval(syncAll, AUTO_SYNC_INTERVAL_MS)
-    } else {
-      if (autoSyncTimer.current) clearInterval(autoSyncTimer.current)
-    }
-    return () => { if (autoSyncTimer.current) clearInterval(autoSyncTimer.current) }
-  }, [autoSync, accounts])
 
   const handleClassify = async () => {
     setClassifying(true)

@@ -1,4 +1,5 @@
 mod commands;
+mod credentials;
 mod error;
 mod state;
 
@@ -23,6 +24,8 @@ async fn main() {
             commands::accounts::update_account,
             commands::accounts::delete_account,
             commands::accounts::test_connection,
+            commands::accounts::microsoft_login_start,
+            commands::accounts::microsoft_login_finish,
             commands::accounts::list_mailboxes,
             commands::accounts::sync_account,
             commands::emails::list_emails,

@@ -5,15 +5,13 @@ const DEFAULT_SETTINGS: AppSettings = {
   // Ohne ausdrueckliche Wahl bleibt alles lokal.
   ai_backend: 'ollama',
   ollama_url: 'http://localhost:11434',
-  text_model: 'llama3',
-  vision_model: 'llava',
+  text_model: 'qwen3.5:4b',
   claude_model: 'claude-haiku-4-5-20251001',
   auto_classify: true,
   auto_sync: false,
   sync_interval_minutes: 30,
-  default_view: 'today',
-  review_before_delete: true,
   max_emails_per_sync: 500,
+  ms_client_id: '',
 }
 
 interface SettingsStore {

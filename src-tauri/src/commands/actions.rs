@@ -1,6 +1,5 @@
 use mp_core::{
     db::queries,
-    imap_client::account_manager,
     models::action::{ActionKind, ActionStatus, OrganizeAction},
 };
 use tauri::State;
@@ -100,14 +99,9 @@ async fn execute_action(state: &AppState, action_id: &str) -> MpResult<ActionSta
         None => return Ok(ActionStatus::Failed("Konto nicht mehr vorhanden".to_string())),
     };
 
-    let password = match account_manager::get_password(&email.account_id) {
-        Ok(p) => p,
-        Err(e) => {
-            return Ok(ActionStatus::Failed(format!(
-                "Passwort nicht im Schluesselbund: {}",
-                e
-            )))
-        }
+    let credential = match crate::credentials::for_account(&email.account_id).await {
+        Ok(c) => c,
+        Err(e) => return Ok(ActionStatus::Failed(format!("No credential for the account: {e}"))),
     };
 
     let uid = email.uid as u32;
@@ -115,7 +109,7 @@ async fn execute_action(state: &AppState, action_id: &str) -> MpResult<ActionSta
     let target_for_move = target.clone();
 
     let result = tokio::task::spawn_blocking(move || {
-        mp_core::imap_client::move_email_imap(&account, &password, &mailbox, uid, &target_for_move)
+        mp_core::imap_client::move_email_imap(&account, &credential, &mailbox, uid, &target_for_move)
     })
     .await
     .map_err(|e| crate::error::MpError::Other(format!("Hintergrundaufgabe abgebrochen: {}", e)))?;

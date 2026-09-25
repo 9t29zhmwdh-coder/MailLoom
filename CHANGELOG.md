@@ -5,6 +5,32 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.9.0] - 2026-09-25
+
+### Added
+
+- **Microsoft 365 and Outlook.com sign-in.** Exchange Online turned off password authentication for IMAP in October 2022, outlook.com in September 2024; the app-password steps MailLoom showed for Microsoft could never produce a working account. Sign-in now uses the OAuth 2.0 device code flow (the code is confirmed at microsoft.com in the browser) and `AUTHENTICATE XOAUTH2`. The refresh token is kept in the Keychain and rotated when Microsoft issues a new one. The app registration's client ID comes from the release build or from Settings.
+- Auto sync and its interval are settings now, and the timer runs on every page, not only while the dashboard is open.
+
+### Fixed
+
+- **Deleting could remove other mails.** Delete flagged the message and then ran a plain `EXPUNGE`, which permanently removes every message flagged as deleted in the folder, including ones flagged by another mail app. It now moves the mail to the server's trash (special-use `\Trash` or the usual names); inside the trash, or where there is none, it removes exactly this message with `UID EXPUNGE`; a server without UIDPLUS only gets the flag. The same fallback in "move" had the same flaw. A scripted IMAP server test checks that no bare `EXPUNGE` is ever sent.
+- Delete errors were swallowed: the mail vanished from the app while it stayed on the server. The list now changes only when the server did, and the app says what happened (moved to trash, removed, flagged).
+- Incremental fetch returned the newest mail again on every run (`N:*` always includes the last message).
+- "Classify automatically after sync" was a setting nothing read; it now runs after manual and automatic syncs.
+- Ollama requests: `think: false`, `num_ctx`, low temperature, HTTP errors reported; default model `qwen3.5:4b`.
+
+### Removed
+
+- Settings without any effect: "Always use review folder before deleting", the vision model and the default view.
+
+### Security
+
+- rustls 0.23.45 (RUSTSEC-2026-0285; affects the TLS connections to Anthropic, Ollama and Microsoft).
+- Content security policy for the window (was `null`), ad-hoc signing identity on macOS, npm audit fix in the frontend lockfile.
+
+---
+
 ## [1.8.1] - 2026-08-27
 
 ### Changed

@@ -39,6 +39,21 @@ export default function App() {
     return () => cleanup.forEach(u => u())
   }, [])
 
+  // Auto sync runs here, not on the dashboard, so it keeps going on every page.
+  useEffect(() => {
+    if (!settings?.auto_sync) return
+    const minutes = Math.max(1, settings.sync_interval_minutes || 30)
+    const id = setInterval(async () => {
+      const accounts = useAccountStore.getState().accounts.filter(a => a.enabled)
+      for (const acc of accounts) {
+        await api.syncAccount(acc.id).catch(() => {})
+      }
+      if (settings.auto_classify) await api.classifyBatch(500).catch(() => {})
+      loadAccounts()
+    }, minutes * 60_000)
+    return () => clearInterval(id)
+  }, [settings?.auto_sync, settings?.sync_interval_minutes, settings?.auto_classify])
+
   useEffect(() => {
     if (tab === 'emails') loadEmails(undefined, filterCategory ?? undefined)
   }, [tab, filterCategory])

@@ -24,6 +24,9 @@ jobs:
       contents: write
     env:
       DATABASE_URL: sqlite:./ci_check.db
+      # Public client ID of the Entra app registration for Microsoft sign-in
+      # (not a secret; a repository variable keeps it out of the source).
+      MAILLOOM_MS_CLIENT_ID: ${{ vars.MAILLOOM_MS_CLIENT_ID }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

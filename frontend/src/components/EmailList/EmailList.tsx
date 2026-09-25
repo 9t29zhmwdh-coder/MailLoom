@@ -23,12 +23,24 @@ export function EmailList() {
     if (!email.is_read) markAsRead(email.id)
   }
 
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
+
+  // Errors used to be swallowed and the mail removed from the list anyway,
+  // while it stayed on the server. Now the list only changes when the server did.
   const handleDelete = async (email: EmailEntry) => {
-    await api.deleteEmail(email.id).catch(() => {})
-    useEmailStore.setState(s => ({
-      emails: s.emails.filter(e => e.id !== email.id),
-      selected: s.selected?.id === email.id ? null : s.selected,
-    }))
+    try {
+      const outcome = await api.deleteEmail(email.id)
+      const text = outcome.kind === 'moved_to_trash'
+        ? t('emailList.movedToTrash').replace('{folder}', outcome.folder)
+        : outcome.kind === 'removed' ? t('emailList.removed') : t('emailList.flaggedOnly')
+      setNotice({ ok: outcome.kind !== 'flagged_only', text })
+      useEmailStore.setState(s => ({
+        emails: s.emails.filter(e => e.id !== email.id),
+        selected: s.selected?.id === email.id ? null : s.selected,
+      }))
+    } catch (e) {
+      setNotice({ ok: false, text: `${t('emailList.deleteFailed')}: ${String(e)}` })
+    }
   }
 
   return (
@@ -43,6 +55,11 @@ export function EmailList() {
           />
         </div>
 
+        {notice && (
+          <div className={`px-3 py-2 text-xs border-b border-gh-border ${notice.ok ? 'text-gh-green' : 'text-gh-red'}`}>
+            {notice.text}
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto">
           {loading ? (
             <div className="flex items-center justify-center h-32 text-gh-muted text-sm">{t('emailList.loading')}</div>
