@@ -46,9 +46,11 @@ characters of each classified mail are sent to their API. The choice is a
 setting, not a build option, and [PRIVACY.md](PRIVACY.md) spells out what each
 one sends.
 
-Quick login for iCloud, Microsoft 365, Gmail and Fastmail, with no manual
-server setup. Mail is stored locally in SQLite; passwords and the API key live
-in the macOS Keychain.
+Quick login for iCloud, Gmail and Fastmail (app password) and for Microsoft 365
+and Outlook.com (Microsoft sign-in in the browser; Microsoft no longer accepts
+passwords for IMAP), with no manual server setup. Mail is stored locally in
+SQLite; passwords, Microsoft sign-in tokens and the API key live in the macOS
+Keychain.
 
 **Not for you if** your mail already sorts itself. If sender rules cover your
 inbox, they are faster and need no model at all. This is for the inbox where
@@ -58,15 +60,15 @@ what matters is what the mail *is*, not who sent it.
 
 | | Feature | Status |
 |---|---|---|
-| **Sync** | iCloud, M365, Gmail, Fastmail, any IMAP | Done |
+| **Sync** | iCloud, Gmail, Fastmail, any IMAP (app password); Microsoft 365 and Outlook.com via Microsoft sign-in (OAuth2 device code, `XOAUTH2`) | Done |
 | **Categorization** | 16 categories: Newsletter, Invoice, Package, Work, Phishing... | Done |
 | **AI Review** | Confirm or correct every AI decision before it takes effect | Done |
 | **Folder Browser** | View all IMAP folders, get AI reorganization suggestions | Done |
-| **Delete emails** | Delete directly from the app, synced to IMAP server | Done |
+| **Delete emails** | Moves the mail to the server's trash; inside the trash, or on servers without one, removes exactly this mail (`UID EXPUNGE`), never other mails marked as deleted. The app says which of these happened | Done |
 | **Dashboard** | Stats, category distribution, per-account sync | Done |
 | **Search** | Full-text across all synced emails | Done |
 | **Multi-Account** | Multiple IMAP accounts in one view | Done |
-| **Keychain** | Passwords stored in macOS Keychain only | Done |
+| **Keychain** | Passwords and Microsoft refresh tokens stored in the macOS Keychain only | Done |
 | **Rules** | Rules by category, sender, subject or body, queued as proposals | Done |
 | **IMAP actions** | Actually move emails on the server after confirmation | Done |
 
@@ -114,7 +116,7 @@ You choose which model classifies your email, and that choice decides whether an
 | `ollama` (default) | your own [Ollama](https://ollama.com) instance, by default `localhost:11434` | nothing |
 | `claude` | [Anthropic's API](https://www.anthropic.com/claude), with your own key | sender, subject and the first 800 characters of the body, per classified email |
 
-The local path needs a running Ollama with a model pulled, `llama3` by default. The cloud path needs an API key in the Keychain; without one, classification reports an error instead of quietly switching to the local model, so the two never substitute for each other unnoticed.
+The local path needs a running Ollama with a model pulled, `qwen3.5:4b` by default. The cloud path needs an API key in the Keychain; without one, classification reports an error instead of quietly switching to the local model, so the two never substitute for each other unnoticed.
 
 Cloud models: `claude-haiku-4-5` by default, configurable to `claude-sonnet-4-6` or `claude-opus-4-8`.
 

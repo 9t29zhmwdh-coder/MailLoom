@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import QRCode from 'qrcode'
-import { api, type AppSettings, type EmailAccount } from '../../lib/tauri'
+import { api, type DeviceCode, type AppSettings, type EmailAccount } from '../../lib/tauri'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useAccountStore } from '../../stores/accountStore'
 import { useT, getLang } from '../../lib/i18n'
@@ -40,22 +40,13 @@ function getProviders(): Record<ProviderKey, Provider> {
       ],
     },
     m365: {
-      label: 'Microsoft 365',
+      label: 'Microsoft 365 / Outlook.com',
       icon: '🪟',
       host: 'outlook.office365.com',
       port: '993',
-      appPasswordUrl: 'https://mysignins.microsoft.com/security-info',
-      appPasswordSteps: de ? [
-        'Öffne mysignins.microsoft.com',
-        'Sicherheitsinformationen → Methode hinzufügen',
-        'App-Passwort → Name: MailLoom',
-        'Kopiere das generierte Passwort',
-      ] : [
-        'Open mysignins.microsoft.com',
-        'Security info → Add method',
-        'App password → Name: MailLoom',
-        'Copy the generated password',
-      ],
+      // Microsoft allows IMAP only with OAuth2; see MicrosoftFlow.
+      appPasswordUrl: '',
+      appPasswordSteps: [],
     },
     gmail: {
       label: 'Gmail',
@@ -153,6 +144,12 @@ export function SettingsView() {
 
       {/* Sync */}
       <Section title={t('settings.syncOptions')}>
+        <Label>{t('settings.msClientId')}</Label>
+        <Input
+          value={draft.ms_client_id}
+          onChange={v => set('ms_client_id', v.trim())}
+          placeholder="00000000-0000-0000-0000-000000000000"
+        />
         <Label>{t('settings.maxEmailsPerSync')}</Label>
         <Input
           value={String(draft.max_emails_per_sync)}
@@ -160,14 +157,20 @@ export function SettingsView() {
           placeholder="500"
         />
         <Toggle
+          label={t('settings.autoSync')}
+          value={draft.auto_sync}
+          onChange={v => set('auto_sync', v)}
+        />
+        <Label>{t('settings.syncIntervalMinutes')}</Label>
+        <Input
+          value={String(draft.sync_interval_minutes)}
+          onChange={v => set('sync_interval_minutes', Math.max(1, parseInt(v) || 30))}
+          placeholder="30"
+        />
+        <Toggle
           label={t('settings.autoClassifyAfterSync')}
           value={draft.auto_classify}
           onChange={v => set('auto_classify', v)}
-        />
-        <Toggle
-          label={t('settings.reviewBeforeDelete')}
-          value={draft.review_before_delete}
-          onChange={v => set('review_before_delete', v)}
         />
       </Section>
 
@@ -233,7 +236,9 @@ function AccountModal({
           </button>
         </div>
         <div className="p-5">
-          {needsAppPassword ? (
+          {providerKey === 'm365' ? (
+            <MicrosoftFlow onDone={onDone} />
+          ) : needsAppPassword ? (
             <AppPasswordFlow providerKey={providerKey} onDone={onDone} />
           ) : (
             <GenericAccountForm
@@ -249,7 +254,70 @@ function AccountModal({
   )
 }
 
-// ─── App-Passwort Flow (iCloud, M365, Gmail) ──────────────────────────────────
+// ─── Microsoft sign-in (OAuth2 device code) ───────────────────────────────────
+// Exchange Online and outlook.com accept IMAP only with OAuth2; the app-password
+// steps shown here before could never lead to a working account.
+
+function MicrosoftFlow({ onDone }: { onDone: () => void }) {
+  const t = useT()
+  const [email, setEmail] = useState('')
+  const [code, setCode] = useState<DeviceCode | null>(null)
+  const [qr, setQr] = useState('')
+  const [error, setError] = useState('')
+  const [waiting, setWaiting] = useState(false)
+
+  const start = async () => {
+    setError('')
+    try {
+      const c = await api.microsoftLoginStart()
+      setCode(c)
+      QRCode.toDataURL(c.verification_uri, { width: 180, margin: 2, color: { dark: '#ffffff', light: '#161b22' } })
+        .then(setQr).catch(() => {})
+      setWaiting(true)
+      const account: EmailAccount = {
+        id: crypto.randomUUID(), label: 'Microsoft', email_address: email,
+        imap_host: 'outlook.office365.com', imap_port: 993, protocol: 'Imap',
+        username: email, use_tls: true, mailboxes: ['INBOX'], enabled: true,
+      }
+      await api.microsoftLoginFinish(account, c)
+      onDone()
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setWaiting(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-gh-muted">{t('settings.microsoftIntro')}</p>
+      <div>
+        <Label>{t('settings.emailAddress')}</Label>
+        <input type="email" value={email} onChange={e => setEmail(e.target.value)} disabled={waiting}
+          placeholder="user@company.com" autoFocus
+          className="w-full bg-gh-bg border border-gh-border rounded-md px-3 py-2 text-sm text-gh-text font-mono focus:outline-hidden focus:border-gh-blue placeholder-[#484f58]" />
+      </div>
+      {!code || !waiting ? (
+        <button onClick={start} disabled={!email.includes('@') || waiting}
+          className="w-full py-2 bg-[#1f6feb] hover:bg-[#388bfd] text-white text-sm rounded-lg transition-colors disabled:opacity-40">
+          {t('settings.microsoftSignIn')}
+        </button>
+      ) : (
+        <div className="text-center space-y-3">
+          <p className="text-sm text-gh-text">{t('settings.microsoftOpen')}</p>
+          <p className="text-sm font-mono text-gh-blue select-all">{code.verification_uri}</p>
+          {qr && <img src={qr} alt="" className="mx-auto rounded-md" />}
+          <p className="text-sm text-gh-text">{t('settings.microsoftEnterCode')}</p>
+          <p className="text-2xl font-mono tracking-widest text-gh-text select-all">{code.user_code}</p>
+          <p className="text-xs text-gh-muted">⟳ {t('settings.microsoftWaiting')}</p>
+        </div>
+      )}
+      {error && <p className="text-xs text-gh-red">{error}</p>}
+    </div>
+  )
+}
+
+// ─── App-Passwort Flow (iCloud, Gmail) ────────────────────────────────────────
 
 function AppPasswordFlow({ providerKey, onDone }: { providerKey: ProviderKey; onDone: () => void }) {
   const t = useT()

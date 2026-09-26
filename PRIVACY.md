@@ -47,6 +47,7 @@ MailLoom connects to:
 1. The IMAP servers you configure
 2. Your Ollama instance, by default `localhost:11434`, when the local model is selected
 3. `api.anthropic.com`, only when the cloud model is selected and only for emails you classify
+4. `login.microsoftonline.com`, only for Microsoft 365 and Outlook.com accounts: to sign in (device code) and to exchange the stored refresh token for a short-lived access token before each IMAP connection. No mail content is sent there; your password is entered at Microsoft in your browser, never in MailLoom
 
 No other outbound connections are made.
 

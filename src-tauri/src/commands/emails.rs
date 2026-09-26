@@ -1,6 +1,5 @@
 use mp_core::{
     db::queries,
-    imap_client::account_manager,
     models::email_entry::EmailEntry,
     search::{search, SearchQuery},
 };
@@ -62,7 +61,7 @@ pub async fn mark_flagged(state: State<'_, AppState>, id: String, flagged: bool)
 }
 
 #[tauri::command]
-pub async fn delete_email(state: State<'_, AppState>, id: String) -> MpResult<()> {
+pub async fn delete_email(state: State<'_, AppState>, id: String) -> MpResult<mp_core::imap_client::DeleteOutcome> {
     let row = sqlx::query!(
         "SELECT account_id, uid, mailbox FROM emails WHERE id = ?", id
     )
@@ -70,22 +69,26 @@ pub async fn delete_email(state: State<'_, AppState>, id: String) -> MpResult<()
     .await?
     .ok_or_else(|| crate::error::MpError::Other("E-Mail nicht gefunden".to_string()))?;
 
-    let accounts = queries::list_accounts(&state.pool).await?;
-    if let Some(account) = accounts.into_iter().find(|a| a.id == row.account_id) {
-        if let Ok(password) = account_manager::get_password(&row.account_id) {
-            let uid = row.uid as u32;
-            let mailbox = row.mailbox.clone();
-            let _ = tokio::task::spawn_blocking(move || {
-                mp_core::imap_client::delete_email_imap(&account, &password, &mailbox, uid)
-            })
-            .await;
-        }
-    }
+    // The server comes first: errors used to be dropped, so a mail vanished from
+    // the app while it stayed on the server.
+    let account = queries::list_accounts(&state.pool).await?
+        .into_iter()
+        .find(|a| a.id == row.account_id)
+        .ok_or_else(|| crate::error::MpError::Other("Account not found".to_string()))?;
+    let credential = crate::credentials::for_account(&row.account_id).await?;
+    let uid = row.uid as u32;
+    let mailbox = row.mailbox.clone();
+    let outcome = tokio::task::spawn_blocking(move || {
+        mp_core::imap_client::delete_email_imap(&account, &credential, &mailbox, uid)
+    })
+    .await
+    .map_err(|e| crate::error::MpError::Other(e.to_string()))?
+    .map_err(|e| crate::error::MpError::Other(e.to_string()))?;
 
     sqlx::query!("DELETE FROM emails WHERE id = ?", id)
         .execute(&state.pool)
         .await?;
-    Ok(())
+    Ok(outcome)
 }
 
 #[tauri::command]

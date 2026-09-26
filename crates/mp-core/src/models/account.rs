@@ -63,11 +63,12 @@ fn default_ai_backend() -> String {
     "ollama".to_string()
 }
 
+// `default` keeps stored settings readable when fields are added or removed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppSettings {
     pub ollama_url: String,
     pub text_model: String,
-    pub vision_model: String,
     #[serde(default = "default_claude_model")]
     pub claude_model: String,
     /// Welches Backend die Klassifizierung ausfuehrt.
@@ -80,25 +81,24 @@ pub struct AppSettings {
     pub auto_classify: bool,
     pub auto_sync: bool,
     pub sync_interval_minutes: u32,
-    pub default_view: String,
-    pub review_before_delete: bool,
     pub max_emails_per_sync: u32,
+    /// Entra app registration used for Microsoft sign-in. Empty uses the one
+    /// built into the release.
+    pub ms_client_id: String,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             ollama_url: "http://localhost:11434".to_string(),
-            text_model: "llama3".to_string(),
-            vision_model: "llava".to_string(),
+            text_model: "qwen3.5:4b".to_string(),
             claude_model: default_claude_model(),
             ai_backend: default_ai_backend(),
             auto_classify: true,
             auto_sync: false,
             sync_interval_minutes: 30,
-            default_view: "today".to_string(),
-            review_before_delete: true,
             max_emails_per_sync: 500,
+            ms_client_id: String::new(),
         }
     }
 }

@@ -141,11 +141,10 @@ pub async fn suggest_folder_reorganization(
     let accounts = queries::list_accounts(&state.pool).await?;
     let account = accounts.into_iter().find(|a| a.id == account_id)
         .ok_or_else(|| crate::error::MpError::Other("Account nicht gefunden".to_string()))?;
-    let password = account_manager::get_password(&account_id)
-        .map_err(|e| crate::error::MpError::Keyring(e.to_string()))?;
+    let credential = crate::credentials::for_account(&account_id).await?;
 
     let folders: Vec<String> = tokio::task::spawn_blocking(move || {
-        mp_core::imap_client::list_mailboxes(&account, &password)
+        mp_core::imap_client::list_mailboxes(&account, &credential)
             .unwrap_or_default()
     })
     .await

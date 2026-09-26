@@ -15,6 +15,21 @@ pub struct OllamaBackend {
     client: Client,
 }
 
+/// `think: false` keeps reasoning models from writing their thoughts into the
+/// answer; without `num_ctx` Ollama reserves the model's full context window;
+/// a low temperature keeps classification repeatable.
+#[derive(Serialize)]
+struct Options {
+    num_ctx: u32,
+    temperature: f32,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self { num_ctx: 8192, temperature: 0.1 }
+    }
+}
+
 impl OllamaBackend {
     pub fn new(base_url: &str, text_model: &str) -> Self {
         Self {
@@ -31,15 +46,18 @@ impl OllamaBackend {
             prompt: &'a str,
             stream: bool,
             format: &'a str,
+            think: bool,
+            options: Options,
         }
         #[derive(Deserialize)]
         struct Resp { response: String }
 
         let resp = self.client
             .post(format!("{}/api/generate", self.base_url))
-            .json(&Req { model: &self.text_model, prompt, stream: false, format: "json" })
+            .json(&Req { model: &self.text_model, prompt, stream: false, format: "json", think: false, options: Options::default() })
             .send()
             .await?
+            .error_for_status()?
             .json::<Resp>()
             .await?;
 
@@ -52,15 +70,18 @@ impl OllamaBackend {
             model: &'a str,
             prompt: &'a str,
             stream: bool,
+            think: bool,
+            options: Options,
         }
         #[derive(Deserialize)]
         struct Resp { response: String }
 
         let resp = self.client
             .post(format!("{}/api/generate", self.base_url))
-            .json(&Req { model: &self.text_model, prompt, stream: false })
+            .json(&Req { model: &self.text_model, prompt, stream: false, think: false, options: Options::default() })
             .send()
             .await?
+            .error_for_status()?
             .json::<Resp>()
             .await?;
 

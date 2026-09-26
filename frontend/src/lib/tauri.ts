@@ -75,6 +75,18 @@ export interface EmailAccount {
   enabled: boolean
 }
 
+/** Microsoft device sign-in: the person enters `user_code` at `verification_uri`. */
+export interface DeviceCode {
+  device_code: string; user_code: string; verification_uri: string
+  expires_in: number; interval: number
+}
+
+/** What deleting did on the server. */
+export type DeleteOutcome =
+  | { kind: 'moved_to_trash'; folder: string }
+  | { kind: 'removed' }
+  | { kind: 'flagged_only' }
+
 export interface AppSettings {
   /// Which backend classifies. 'ollama' keeps everything on the machine,
   /// 'claude' sends sender, subject and the first 800 characters of the body
@@ -82,14 +94,12 @@ export interface AppSettings {
   ai_backend: string
   ollama_url: string
   text_model: string
-  vision_model: string
   claude_model: string
   auto_classify: boolean
   auto_sync: boolean
   sync_interval_minutes: number
-  default_view: string
-  review_before_delete: boolean
   max_emails_per_sync: number
+  ms_client_id: string
 }
 
 export interface FolderSuggestion {
@@ -188,6 +198,9 @@ export const api = {
   updateAccount: (account: EmailAccount)         => invoke<void>('update_account', { account }),
   deleteAccount: (id: string)                    => invoke<void>('delete_account', { id }),
   testConnection: (account: EmailAccount, password: string) => invoke<string[]>('test_connection', { account, password }),
+  microsoftLoginStart: ()                        => invoke<DeviceCode>('microsoft_login_start'),
+  microsoftLoginFinish: (account: EmailAccount, code: DeviceCode) =>
+    invoke<EmailAccount>('microsoft_login_finish', { account, code }),
   listMailboxes: (accountId: string)             => invoke<string[]>('list_mailboxes', { accountId }),
   syncAccount: (accountId: string)               => invoke<number>('sync_account', { accountId }),
 
@@ -198,7 +211,7 @@ export const api = {
   searchEmails: (query: string, limit?: number)  => invoke<EmailEntry[]>('search_emails', { query, limit }),
   markRead: (id: string, read: boolean)          => invoke<void>('mark_read', { id, read }),
   markFlagged: (id: string, flagged: boolean)    => invoke<void>('mark_flagged', { id, flagged }),
-  deleteEmail: (id: string)                      => invoke<void>('delete_email', { id }),
+  deleteEmail: (id: string)                      => invoke<DeleteOutcome>('delete_email', { id }),
 
   // classify
   classifyEmail: (emailId: string)               => invoke<void>('classify_email', { emailId }),

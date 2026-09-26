@@ -47,9 +47,11 @@ Absender, Betreff und die ersten 800 Zeichen jeder klassifizierten Mail an
 deren API. Die Wahl ist eine Einstellung, keine Build-Option, und
 [PRIVACY.md](PRIVACY.md) schreibt aus, was jeweils übertragen wird.
 
-Schnell-Login für iCloud, Microsoft 365, Gmail und Fastmail, ohne manuelle
-Servereinstellungen. Mails liegen lokal in SQLite; Passwörter und der API-Key
-im macOS-Schlüsselbund.
+Schnell-Login für iCloud, Gmail und Fastmail (App-Passwort) sowie für
+Microsoft 365 und Outlook.com (Microsoft-Anmeldung im Browser; Microsoft nimmt
+für IMAP keine Passwörter mehr an), ohne manuelle Servereinstellungen. Mails
+liegen lokal in SQLite; Passwörter, Microsoft-Anmeldetokens und der API-Key im
+macOS-Schlüsselbund.
 
 **Nichts für dich, wenn** sich deine Mail schon selbst sortiert. Wenn
 Absenderregeln dein Postfach abdecken, sind die schneller und brauchen gar kein
@@ -60,15 +62,15 @@ wer sie geschickt hat.
 
 | | Funktion | Status |
 |---|---|---|
-| **Sync** | iCloud, M365, Gmail, Fastmail, beliebiger IMAP | Fertig |
+| **Sync** | iCloud, Gmail, Fastmail, beliebiger IMAP (App-Passwort); Microsoft 365 und Outlook.com per Microsoft-Anmeldung (OAuth2-Device-Code, `XOAUTH2`) | Fertig |
 | **Kategorisierung** | 16 Kategorien: Newsletter, Rechnung, Paket, Arbeit, Phishing... | Fertig |
 | **KI-Review** | Jede KI-Entscheidung prüfen und korrigieren, bevor sie gilt | Fertig |
 | **Ordner-Browser** | Alle IMAP-Ordner anzeigen, KI-Reorganisationsvorschläge | Fertig |
-| **E-Mails löschen** | Direkt in der App löschen, wird mit IMAP synchronisiert | Fertig |
+| **E-Mails löschen** | Verschiebt die Mail in den Papierkorb des Servers; im Papierkorb selbst oder auf Servern ohne Papierkorb wird genau diese Mail entfernt (`UID EXPUNGE`), nie andere als gelöscht markierte. Die App sagt, was davon passiert ist | Fertig |
 | **Dashboard** | Stats, Kategorienverteilung, Sync pro Konto | Fertig |
 | **Suche** | Volltextsuche über alle synchronisierten E-Mails | Fertig |
 | **Multi-Account** | Mehrere IMAP-Konten in einem Dashboard | Fertig |
-| **Keychain** | Passwörter nur im macOS-Schlüsselbund gespeichert | Fertig |
+| **Keychain** | Passwörter und Microsoft-Refresh-Tokens nur im macOS-Schlüsselbund | Fertig |
 | **Regeln** | Regeln nach Kategorie, Absender, Betreff oder Text, als Vorschlag angelegt | Fertig |
 | **IMAP-Aktionen** | Tatsächliches Verschieben auf dem Server nach Bestätigung | Fertig |
 
@@ -117,7 +119,7 @@ Standardmodell: `claude-haiku-4-5` (schnell, günstig), in den Einstellungen ums
 
 ## Datenschutz
 
-E-Mails und Sync-Status werden lokal in SQLite gespeichert; ausser Anthropic (für Klassifizierungsanfragen) sieht niemand deine Daten. IMAP-Passwörter und der Anthropic API-Key werden im macOS-Schlüsselbund gespeichert und nie im Klartext auf die Festplatte geschrieben.
+E-Mails und Sync-Status werden lokal in SQLite gespeichert. Mit dem lokalen Standardmodell sieht kein Dritter deine Mails; mit dem Cloud-Modell erreichen Klassifizierungsanfragen Anthropic und sonst niemanden. IMAP-Passwörter, Microsoft-Anmeldetokens und der Anthropic-API-Key liegen im macOS-Schlüsselbund und werden nie im Klartext auf die Festplatte geschrieben.
 
 ---
 

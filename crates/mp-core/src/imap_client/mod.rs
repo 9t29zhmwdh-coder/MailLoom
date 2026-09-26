@@ -7,6 +7,7 @@ use mailparse::{MailHeaderMap, parse_mail};
 use chrono::Utc;
 use uuid::Uuid;
 
+use crate::oauth::Credential;
 use crate::models::{
     email_entry::{Attachment, EmailAddress, EmailEntry, EmailKind},
     account::EmailAccount,
@@ -14,23 +15,42 @@ use crate::models::{
 
 pub type TlsSession = Session<imap::Connection>;
 
-pub fn connect_tls(account: &EmailAccount, password: &str) -> Result<TlsSession> {
+/// `AUTHENTICATE XOAUTH2`: the initial response carries user and access token;
+/// the crate base64-encodes it.
+struct XOAuth2<'a> {
+    user: &'a str,
+    token: &'a str,
+}
+
+impl imap::Authenticator for XOAuth2<'_> {
+    type Response = String;
+    fn process(&self, _challenge: &[u8]) -> Self::Response {
+        format!("user={}\x01auth=Bearer {}\x01\x01", self.user, self.token)
+    }
+}
+
+pub fn connect_tls(account: &EmailAccount, credential: &Credential) -> Result<TlsSession> {
     let client = imap::ClientBuilder::new(&account.imap_host, account.imap_port)
         .connect()
-        .map_err(|e| anyhow::anyhow!("IMAP Verbindung fehlgeschlagen: {}", e))?;
-    let session = client
-        .login(&account.username, password)
-        .map_err(|e| anyhow::anyhow!("IMAP Login fehlgeschlagen: {:?}", e.0))?;
+        .map_err(|e| anyhow::anyhow!("IMAP connection failed: {}", e))?;
+    let session = match credential {
+        Credential::Password(password) => client
+            .login(&account.username, password)
+            .map_err(|e| anyhow::anyhow!("IMAP login failed: {:?}", e.0))?,
+        Credential::Bearer(token) => client
+            .authenticate("XOAUTH2", &XOAuth2 { user: &account.username, token })
+            .map_err(|e| anyhow::anyhow!("IMAP sign-in with Microsoft failed: {:?}", e.0))?,
+    };
     Ok(session)
 }
 
 pub fn fetch_emails(
     account: &EmailAccount,
-    password: &str,
+    credential: &Credential,
     mailbox: &str,
     max: u32,
 ) -> Result<Vec<EmailEntry>> {
-    let mut session = connect_tls(account, password)?;
+    let mut session = connect_tls(account, credential)?;
     let mailbox_info = session.select(mailbox)?;
     let exists = mailbox_info.exists;
     if exists == 0 {
@@ -56,8 +76,8 @@ pub fn fetch_emails(
     Ok(entries)
 }
 
-pub fn list_mailboxes(account: &EmailAccount, password: &str) -> Result<Vec<String>> {
-    let mut session = connect_tls(account, password)?;
+pub fn list_mailboxes(account: &EmailAccount, credential: &Credential) -> Result<Vec<String>> {
+    let mut session = connect_tls(account, credential)?;
     let mailboxes = session
         .list(None, Some("*"))?
         .iter()
@@ -67,29 +87,95 @@ pub fn list_mailboxes(account: &EmailAccount, password: &str) -> Result<Vec<Stri
     Ok(mailboxes)
 }
 
-pub fn delete_email_imap(account: &EmailAccount, password: &str, mailbox: &str, uid: u32) -> Result<()> {
-    let mut session = connect_tls(account, password)?;
-    session.select(mailbox)?;
-    session.uid_store(uid.to_string(), "+FLAGS (\\Deleted)")?;
-    session.expunge()?;
+/// What deleting did, so the app can say it truthfully.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "kind", content = "folder", rename_all = "snake_case")]
+pub enum DeleteOutcome {
+    /// Moved to the server's trash folder (named here); recoverable.
+    MovedToTrash(String),
+    /// Removed for good: it was in the trash already, or there is none.
+    Removed,
+    /// Flagged as deleted only. The server lacks UIDPLUS, and a plain EXPUNGE
+    /// would also remove every other message flagged as deleted in the folder.
+    FlaggedOnly,
+}
+
+/// Folder names mail servers use for the trash when they do not mark it with
+/// the special-use attribute (RFC 6154).
+const TRASH_NAMES: &[&str] = &[
+    "Trash", "Deleted Items", "Deleted Messages", "[Gmail]/Trash", "[Google Mail]/Trash",
+    "Papierkorb", "Gelöschte Elemente", "INBOX.Trash",
+];
+
+fn trash_mailbox<S: std::io::Read + std::io::Write>(session: &mut Session<S>) -> Option<String> {
+    let names = session.list(None, Some("*")).ok()?;
+    if let Some(marked) = names.iter().find(|n| n.attributes().iter().any(|a| matches!(a, imap_proto::NameAttribute::Trash))) {
+        return Some(marked.name().to_string());
+    }
+    TRASH_NAMES.iter()
+        .find_map(|t| names.iter().find(|n| n.name().eq_ignore_ascii_case(t)))
+        .map(|n| n.name().to_string())
+}
+
+/// Removes exactly the given message. `EXPUNGE` would remove every message
+/// flagged as deleted in the mailbox, including ones the person never chose;
+/// `UID EXPUNGE` (UIDPLUS) removes only this one. Without UIDPLUS the message
+/// stays flagged and nothing else is touched.
+fn expunge_one<S: std::io::Read + std::io::Write>(session: &mut Session<S>, uid: &str) -> Result<bool> {
+    session.uid_store(uid, "+FLAGS (\\Deleted)")
+        .map_err(|e| anyhow::anyhow!("Flagging as deleted failed: {}", e))?;
+    if session.capabilities()?.has_str("UIDPLUS") {
+        session.uid_expunge(uid).map_err(|e| anyhow::anyhow!("UID EXPUNGE failed: {}", e))?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+/// Deletes a message the way a mail app does: into the trash when there is one,
+/// for good only inside the trash itself. Before, every delete ran a plain
+/// EXPUNGE, which also removed other messages flagged as deleted in the folder.
+pub fn delete_email_imap(account: &EmailAccount, credential: &Credential, mailbox: &str, uid: u32) -> Result<DeleteOutcome> {
+    let mut session = connect_tls(account, credential)?;
+    let outcome = delete_in_session(&mut session, mailbox, uid)?;
     let _ = session.logout();
-    Ok(())
+    Ok(outcome)
+}
+
+fn delete_in_session<S: std::io::Read + std::io::Write>(session: &mut Session<S>, mailbox: &str, uid: u32) -> Result<DeleteOutcome> {
+    let trash = trash_mailbox(session);
+    session.select(mailbox)?;
+    let uid_str = uid.to_string();
+
+    let outcome = match trash.filter(|t| !t.eq_ignore_ascii_case(mailbox)) {
+        Some(trash) => {
+            if session.uid_mv(&uid_str, &trash).is_err() {
+                session.uid_copy(&uid_str, &trash)
+                    .map_err(|e| anyhow::anyhow!("COPY to {} failed: {}", trash, e))?;
+                expunge_one(session, &uid_str)?;
+            }
+            DeleteOutcome::MovedToTrash(trash)
+        }
+        None => {
+            if expunge_one(session, &uid_str)? { DeleteOutcome::Removed } else { DeleteOutcome::FlaggedOnly }
+        }
+    };
+    Ok(outcome)
 }
 
 /// Moves a message to another mailbox on the server, creating the target if needed.
 ///
-/// Prefers the MOVE extension (RFC 6851). Not every server implements it, so this
-/// falls back to the classic COPY plus \Deleted plus EXPUNGE sequence. The fallback
-/// is not free of consequence: EXPUNGE removes every message flagged as deleted in
-/// the mailbox, not just this one, which is why it only runs when MOVE is refused.
+/// Prefers the MOVE extension (RFC 6851) and falls back to COPY plus removing
+/// exactly this message (`UID EXPUNGE`). Without UIDPLUS the original stays in
+/// place flagged as deleted rather than risking other messages.
 pub fn move_email_imap(
     account: &EmailAccount,
-    password: &str,
+    credential: &Credential,
     mailbox: &str,
     uid: u32,
     target: &str,
 ) -> Result<()> {
-    let mut session = connect_tls(account, password)?;
+    let mut session = connect_tls(account, credential)?;
     session.select(mailbox)?;
 
     // The target folder may not exist yet; CREATE on an existing mailbox is an
@@ -103,12 +189,7 @@ pub fn move_email_imap(
         session
             .uid_copy(&uid_str, target)
             .map_err(|e| anyhow::anyhow!("COPY nach {} fehlgeschlagen: {}", target, e))?;
-        session
-            .uid_store(&uid_str, "+FLAGS (\\Deleted)")
-            .map_err(|e| anyhow::anyhow!("Markieren als geloescht fehlgeschlagen: {}", e))?;
-        session
-            .expunge()
-            .map_err(|e| anyhow::anyhow!("EXPUNGE fehlgeschlagen: {}", e))?;
+        expunge_one(&mut session, &uid_str)?;
     }
 
     let _ = session.logout();
@@ -117,18 +198,21 @@ pub fn move_email_imap(
 
 pub fn fetch_since_uid(
     account: &EmailAccount,
-    password: &str,
+    credential: &Credential,
     mailbox: &str,
     since_uid: u32,
     max: u32,
 ) -> Result<Vec<EmailEntry>> {
-    let mut session = connect_tls(account, password)?;
+    let mut session = connect_tls(account, credential)?;
     session.select(mailbox)?;
     let uid_range = format!("{}:*", since_uid + 1);
     let messages = session.uid_fetch(&uid_range, "(UID FLAGS BODY.PEEK[])")?;
 
     let mut entries: Vec<EmailEntry> = messages
         .iter()
+        // `N:*` always includes the newest message, even when its UID is below N;
+        // without this filter every sync fetched the last mail again.
+        .filter(|msg| msg.uid.is_some_and(|u| u > since_uid))
         .filter_map(|msg| {
             let body = msg.body()?;
             parse_email_message(body, msg.uid.unwrap_or(0), mailbox, &account.id).ok()
@@ -325,5 +409,104 @@ Der Schluessel liegt beim Empfang.\r\n";
         let mail = parse_email_message(roh, 1, "INBOX", "konto-1").unwrap();
         assert_eq!(mail.subject, "");
         assert_eq!(mail.from.address, "nur@example.ch");
+    }
+}
+
+#[cfg(test)]
+mod delete_tests {
+    //! A scripted IMAP server that records every command, so the tests can
+    //! prove that deleting never sends a bare EXPUNGE (which removes every
+    //! message flagged as deleted in the folder, not only the chosen one).
+    use super::*;
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+    use std::sync::{Arc, Mutex};
+
+    struct Server { uidplus: bool, trash: bool, move_ok: bool }
+
+    fn run(server: Server) -> (DeleteOutcome, Vec<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let log2 = log.clone();
+        let handle = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut out = stream.try_clone().unwrap();
+            out.write_all(b"* OK fake ready\r\n").unwrap();
+            for line in BufReader::new(stream).lines() {
+                let line = line.unwrap();
+                let mut parts = line.splitn(2, ' ');
+                let tag = parts.next().unwrap_or("").to_string();
+                let cmd = parts.next().unwrap_or("").to_string();
+                log2.lock().unwrap().push(cmd.clone());
+                let upper = cmd.to_uppercase();
+                let reply = if upper.starts_with("CAPABILITY") {
+                    format!("* CAPABILITY IMAP4rev1 MOVE{}\r\n{tag} OK\r\n", if server.uidplus { " UIDPLUS" } else { "" })
+                } else if upper.starts_with("LIST") {
+                    let trash = if server.trash { "* LIST (\\HasNoChildren \\Trash) \"/\" \"Papierkorb\"\r\n" } else { "" };
+                    format!("* LIST (\\HasNoChildren) \"/\" \"INBOX\"\r\n{trash}{tag} OK\r\n")
+                } else if upper.starts_with("SELECT") {
+                    format!("* 3 EXISTS\r\n* OK [UIDVALIDITY 1] ok\r\n{tag} OK [READ-WRITE] done\r\n")
+                } else if upper.starts_with("UID MOVE") && !server.move_ok {
+                    format!("{tag} NO move refused\r\n")
+                } else if upper.starts_with("UID STORE") {
+                    format!("* 1 FETCH (UID 5 FLAGS (\\Deleted))\r\n{tag} OK\r\n")
+                } else if upper.starts_with("UID EXPUNGE") || upper.starts_with("EXPUNGE") {
+                    format!("* 1 EXPUNGE\r\n{tag} OK\r\n")
+                } else if upper.starts_with("LOGOUT") {
+                    out.write_all(format!("* BYE\r\n{tag} OK\r\n").as_bytes()).unwrap();
+                    break;
+                } else {
+                    format!("{tag} OK\r\n")
+                };
+                out.write_all(reply.as_bytes()).unwrap();
+            }
+        });
+        let client = imap::ClientBuilder::new("127.0.0.1", port)
+            .mode(imap::ConnectionMode::Plaintext)
+            .connect()
+            .unwrap();
+        let mut session = client.login("user", "pass").map_err(|e| e.0).unwrap();
+        let outcome = delete_in_session(&mut session, "INBOX", 5).unwrap();
+        let _ = session.logout();
+        handle.join().unwrap();
+        let commands = log.lock().unwrap().clone();
+        (outcome, commands)
+    }
+
+    fn no_bare_expunge(commands: &[String]) {
+        assert!(!commands.iter().any(|c| c.trim().eq_ignore_ascii_case("EXPUNGE")), "{commands:?}");
+    }
+
+    #[test]
+    fn delete_moves_into_the_trash() {
+        let (outcome, commands) = run(Server { uidplus: true, trash: true, move_ok: true });
+        assert_eq!(outcome, DeleteOutcome::MovedToTrash("Papierkorb".into()));
+        assert!(commands.iter().any(|c| c.starts_with("UID MOVE 5")), "{commands:?}");
+        no_bare_expunge(&commands);
+    }
+
+    #[test]
+    fn without_move_it_copies_and_expunges_only_this_uid() {
+        let (outcome, commands) = run(Server { uidplus: true, trash: true, move_ok: false });
+        assert_eq!(outcome, DeleteOutcome::MovedToTrash("Papierkorb".into()));
+        assert!(commands.iter().any(|c| c.starts_with("UID COPY 5")), "{commands:?}");
+        assert!(commands.iter().any(|c| c.starts_with("UID EXPUNGE 5")), "{commands:?}");
+        no_bare_expunge(&commands);
+    }
+
+    #[test]
+    fn without_trash_it_removes_only_this_uid() {
+        let (outcome, commands) = run(Server { uidplus: true, trash: false, move_ok: true });
+        assert_eq!(outcome, DeleteOutcome::Removed);
+        assert!(commands.iter().any(|c| c.starts_with("UID EXPUNGE 5")), "{commands:?}");
+        no_bare_expunge(&commands);
+    }
+
+    #[test]
+    fn without_uidplus_it_only_flags() {
+        let (outcome, commands) = run(Server { uidplus: false, trash: false, move_ok: true });
+        assert_eq!(outcome, DeleteOutcome::FlaggedOnly);
+        assert!(!commands.iter().any(|c| c.to_uppercase().contains("EXPUNGE")), "{commands:?}");
     }
 }

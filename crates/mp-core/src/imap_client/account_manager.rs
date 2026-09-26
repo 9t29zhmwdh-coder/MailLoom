@@ -41,8 +41,8 @@ pub fn delete_password(account_id: &str) -> Result<()> {
     }
 }
 
-pub fn test_connection(account: &EmailAccount, password: &str) -> Result<Vec<String>> {
-    let mut session = super::connect_tls(account, password)?;
+pub fn test_connection(account: &EmailAccount, credential: &crate::oauth::Credential) -> Result<Vec<String>> {
+    let mut session = super::connect_tls(account, credential)?;
     let mailboxes: Vec<String> = session
         .list(None, Some("*"))?
         .iter()
