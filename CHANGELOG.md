@@ -5,6 +5,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.9.2] - 2026-09-30
+
+### Changed
+
+Dependency and CI updates merged since v1.9.1, each with green checks:
+
+- chore(deps): bump vite from 8.3.0 to 8.3.1 in /frontend in the npm group (#98)
+
+---
+
 ## [1.9.1] - 2026-09-27
 
 ### Changed
