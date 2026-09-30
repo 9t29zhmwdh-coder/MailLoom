@@ -36,6 +36,22 @@ updates:
       # This silences the doomed update attempt, not the alert.
       - dependency-name: "glib"
         versions: [">= 0.20"]
+
+      # The Tauri crates and their npm counterparts have to stay on the same minor
+      # version. The Tauri CLI refuses to build when `tauri` and `@tauri-apps/api`,
+      # or a plugin crate and its npm package, differ in major or minor version.
+      # Dependabot raises the two sides in separate pull requests, and the regular
+      # CI never runs `tauri build`, so a merged npm group can leave the Rust side
+      # behind while every check stays green and only the release build fails.
+      #
+      # Patch updates still arrive on both sides. Minor and major updates of the
+      # Tauri stack are made by hand, both sides in one change. The npm entry
+      # below carries the matching rule. Security advisories stay visible in the
+      # Security tab either way.
+      - dependency-name: "tauri"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "tauri-*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
@@ -46,3 +62,10 @@ updates:
       npm:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      # Minor and major updates of the Tauri packages are made by hand, together
+      # with the Rust crates. See the note at the Tauri crates in the cargo entry.
+      - dependency-name: "@tauri-apps/api"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "@tauri-apps/plugin-*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]

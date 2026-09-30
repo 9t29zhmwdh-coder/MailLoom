@@ -5,6 +5,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.9.3] - 2026-09-30
+
+### Changed
+
+- Dependabot no longer raises minor and major updates of the Tauri stack, neither for the Rust crates (`tauri`, `tauri-*`) nor for the npm packages (`@tauri-apps/api`, `@tauri-apps/plugin-*`). The Tauri CLI refuses to build when a crate and its npm package differ in major or minor version, Dependabot raises the two sides in separate pull requests, and the regular CI never runs `tauri build`. A merged npm group could therefore leave the Rust side behind while every check stayed green, and only the release build failed. Patch updates still arrive on both sides. Minor and major updates of the Tauri stack are now made by hand, both sides in one change.
+
+---
+
 ## [1.9.2] - 2026-09-30
 
 ### Changed
