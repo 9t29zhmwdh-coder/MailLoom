@@ -3,7 +3,7 @@ resolver = "2"
 members  = ["crates/mp-core", "crates/mp-cli", "src-tauri"]
 
 [workspace.package]
-version = "1.9.4"
+version = "1.9.5"
 edition = "2021"
 
 [workspace.dependencies]
